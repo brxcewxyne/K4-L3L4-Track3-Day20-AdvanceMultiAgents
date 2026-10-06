@@ -3,8 +3,7 @@
 ## 1. Thông tin nhóm và cấu hình
 
 | Họ tên | Mã sinh viên | Phần đóng góp |
-|---|---|---|
-| TODO | TODO | TODO |
+|Đinh Tuấn Long|2A202602620|End to end|
 
 - Mô hình (tên deployment hoặc `LAB_MODEL`), nhiệt độ (`LAB_TEMPERATURE`), `recursion_limit`: TODO điền tên deployment và `LAB_TEMPERATURE` từ `.env` (không in giá trị khóa); theo người dùng, mô hình là OpenCode Go (DeepSeek V4.1 Flash). `recursion_limit`: 60 (mặc định) cho mọi lần chạy, riêng lần retry `subagents/code-eval` dùng 100.
 - Phiên bản Deep Agents (`pip show deepagents`), hệ điều hành, chạy trực tiếp hay trong Docker: Deep Agents 0.7.21 (ghim trong `pyproject.toml`), Python 3.12; host Windows, mọi lần chạy trong ảnh Docker `lab-deepagents` (Linux).

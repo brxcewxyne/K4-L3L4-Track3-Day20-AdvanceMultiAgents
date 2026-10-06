@@ -1,0 +1,64 @@
+{
+  "task": "data-learn",
+  "condition": "skills-auto",
+  "role": "learn",
+  "error": null,
+  "timestamp": "2026-10-06T14:05:41.472150+00:00",
+  "skills_sha256": "a4a40722e7e47ee12890e4a1ec4a64ef89fc4a052564a6d2377ed9aa22b183ef",
+  "seconds": 110.5,
+  "tokens": {
+    "input": 203130,
+    "output": 9799,
+    "total": 212929
+  },
+  "tool_calls": 24,
+  "subagent_calls": 0,
+  "skills_read": 2,
+  "skills_modified": false,
+  "final_message": "Written `workspace/answer.json`. One thing needs your attention before sign-off — see the note at the end.\n\n**Data cleaning performed** (`workspace/sales.csv`, 101 data rows → 94 orders):\n1. **Duplicate rows** — 7 rows were byte-identical re-exports of an earlier row (`S-1022`, `S-1021`, `S-1009`, `S-1024`, `S-1053`, `S-1072`, `S-1087` each appeared twice). Also checked for near-duplicates differing only in whitespace/case: none existed. Kept one row per `order_id` → `duplicate_rows_removed` = 7, 94 distinct orders.\n2. **Regions** — stripped stray spaces and normalised spelling/case (`NORTH`, `north`, `North `, ` North` → `North`); only the four expected values remain (North 31, South 24, East 21, West 18).\n3. **Dates** — parsed all three formats (`YYYY-MM-DD`, `DD/MM/YYYY` = 00:00 UTC, ISO-8601 with offset/`Z`) and converted to UTC before the Q1 window test. This matters at the boundaries: `S-2003` (2023-12-31T21:00-05:00 → 2024-01-01T02:00Z) **is** in Q1, while `S-2000` (2024-03-31T22:30-05:00 → 2024-04-01T03:30Z) and `S-2002` (2024-01-01T00:30+07:00 → 2023-12-31T17:30Z) are **not**; `S-2001` (2024-04-01T02:00+07:00 → 2024-03-31T19:00Z) **is**.\n4. **Missing amounts** — `-999` treated as unknown and excluded from every total (8 distinct orders: `S-1002`, `S-1020`, `S-1026`, `S-1033`, `S-1059`, `S-1067`, `S-1068`, `S-1082`). Three of these (`S-1020`, `S-1033`, `S-1059`) fall in the North/Q1 window, so they reduce the order count.\n\n**Result** (Decimal arithmetic, sum recomputed independently by a validator that re-reads the saved JSON):\n`north_q1_revenue` 3130.24, `north_q1_orders` 10, `top_region` \"North\" (9,504.47 vs South 9,136.24, East 8,790.82, West 8,475.68), `missing_amount_orders` 8, `duplicate_rows_removed` 7.\n\n**Flag — Acme reporting conventions not found.** The task says the answer must include \"whatever the Acme reporting conventions require\", but no conventions document exists anywhere I can reach (the workspace contains only `README.md` and `sales.csv`; the only other files are the two skills). Rather than invent fields that the review bot might reject, I emitted **only** the five keys you listed, verbatim and correctly typed. Please point me at the conventions file (path or paste it) and I will regenerate `answer.json` with the mandated extra keys/meta fields.\n\n**One interpretation call:** `north_q1_orders` is reported as **10**, i.e. the distinct orders actually counted in the revenue (missing-amount orders are not added to revenue). If you instead mean \"North orders placed in Q1\" including the three unknown-amount orders, that value is 13 — say the word and I'll switch it.\n\nNo other files were created or modified; scratch scripts were removed.",
+  "score": 0.625,
+  "passed": 5,
+  "total": 8,
+  "checks": [
+    {
+      "name": "north_q1_revenue",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "north_q1_orders",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "top_region",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "missing_amount_orders",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate_rows_removed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rule_money_in_cents",
+      "passed": false,
+      "detail": "RULE: money values in answer.json are integer cents (1606.67 USD is written 160667)."
+    },
+    {
+      "name": "rule_meta_block",
+      "passed": false,
+      "detail": "RULE: answer.json has an object `meta` = {\"source\": <input file name>, \"rows_in\": <number of data rows in the input file, duplicates included>, \"rows_used\": <number of distinct orders with a known amount>}."
+    },
+    {
+      "name": "rule_clean_csv",
+      "passed": false,
+      "detail": "RULE: write workspace/clean.csv with the header order_id,timestamp_utc,region,amount_cents; one row per distinct order with a known amount; timestamp_utc as YYYY-MM-DDTHH:MM:SSZ (UTC); region in canonical spelling (North, South, East, West); amount in integer cents."
+    }
+  ]
+}
