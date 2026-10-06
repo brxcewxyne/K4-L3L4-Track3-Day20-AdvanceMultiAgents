@@ -6,10 +6,17 @@ Chạy thật:   python -m lab.runner --condition baseline --tasks learn
 """
 import argparse
 import json
+import os
+import shutil
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage, ToolMessage
 
+from .agent import build_agent
 from .grading import grade                                                      # có sẵn
 from .tasks import ROOT, get_task, hash_dir, list_tasks, prepare_sandbox         # có sẵn
 
@@ -19,6 +26,14 @@ CONDITIONS = {
     "subagents": {"mode": "subagents", "skills_dir": None},
     "skills-auto": {"mode": "single", "skills_dir": "skills/auto"},
 }
+
+# Ngân sách token mặc định cho một lần chạy (chỉ áp dụng khi có usage từ mô hình).
+# Đổi bằng biến môi trường LAB_MAX_TOKENS=<số>; LAB_MAX_TOKENS=0 để tắt giới hạn.
+DEFAULT_MAX_TOKENS = 200_000
+
+
+class TokenLimitExceeded(RuntimeError):
+    """Dừng một lần chạy khi tổng token vượt ngân sách cấu hình."""
 
 
 def render_trace(messages) -> str:
@@ -46,7 +61,8 @@ def render_trace(messages) -> str:
     return "\n\n".join(parts)
 
 
-def run_task(task_id: str, condition: str, results_dir="results", model=None, recursion_limit: int = 60) -> dict:
+def run_task(task_id: str, condition: str, results_dir="results", model=None,
+             recursion_limit: int = 60, max_tokens: int | None = None) -> dict:
     """Chạy MỘT tác vụ dưới MỘT điều kiện, chấm điểm, ghi kết quả, và trả về bản ghi (record).
 
     Ghi vào: <results_dir>/<condition>/<task_id>/run.json và trace.md  (trace.md = render_trace(messages)).
@@ -64,8 +80,92 @@ def run_task(task_id: str, condition: str, results_dir="results", model=None, re
       seconds, final_message, error (None nếu không lỗi)
     Lỗi khi chạy tác tử KHÔNG được làm chương trình dừng: ghi vào `error` và vẫn chấm điểm.
     Sandbox là thư mục tạm NGOÀI kho mã nguồn và phải được xóa sau khi chạy.
+    `max_tokens`: ngân sách token; None -> đọc LAB_MAX_TOKENS (0 = tắt), mặc định DEFAULT_MAX_TOKENS.
+    Khi bị ngắt (GraphRecursionError hoặc TokenLimitExceeded), các bước đã chạy vẫn được lưu vào trace.md.
     """
-    raise NotImplementedError("TODO 1: cài đặt run_task (xem guides/pseudocode/03_runner.md)")
+    if max_tokens is None:
+        raw = os.getenv("LAB_MAX_TOKENS", "").strip()
+        max_tokens = int(raw) if raw.isdigit() else DEFAULT_MAX_TOKENS
+    cfg = CONDITIONS[condition]
+    task = get_task(task_id)
+    skills_dir = ROOT / cfg["skills_dir"] if cfg["skills_dir"] else None
+    out = Path(results_dir) / condition / task_id
+    out.mkdir(parents=True, exist_ok=True)
+    sandbox = Path(tempfile.mkdtemp(prefix="lab-run-"))
+    record = {
+        "task": task_id,
+        "condition": condition,
+        "role": task.role,
+        "error": None,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        prepare_sandbox(task, sandbox, skills_dir)
+        skills_before = hash_dir(sandbox / "skills")
+        record["skills_sha256"] = skills_before
+
+        agent = build_agent(sandbox, mode=cfg["mode"], use_skills=skills_dir is not None, model=model)
+        usage = UsageMetadataCallbackHandler()
+        t0 = time.perf_counter()
+        last_state = None
+
+        def tokens_used() -> int:
+            return sum(int(m.get("total_tokens", 0) or 0) for m in usage.usage_metadata.values())
+
+        try:
+            # stream_mode="values" giữ lại trạng thái đầy đủ sau mỗi bước, nên khi
+            # GraphRecursionError (hoặc ngân sách token) làm dừng giữa chừng, các
+            # message đã sinh vẫn còn để ghi trace.md và đếm tool call.
+            for state in agent.stream(
+                {"messages": [{"role": "user", "content": task.instruction}]},
+                config={"callbacks": [usage], "recursion_limit": recursion_limit},
+                stream_mode="values",
+            ):
+                last_state = state
+                if max_tokens and tokens_used() > max_tokens:
+                    raise TokenLimitExceeded(
+                        f"{tokens_used()} tokens > LAB_MAX_TOKENS={max_tokens}; run stopped early"
+                    )
+        except Exception as exc:  # noqa: BLE001
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
+        messages = list(last_state.get("messages", [])) if last_state is not None else []
+        final = messages[-1].content if messages else ""
+
+        record["seconds"] = round(time.perf_counter() - t0, 1)
+        record["tokens"] = {"input": 0, "output": 0, "total": 0}
+        for meta in usage.usage_metadata.values():
+            record["tokens"]["input"] += int(meta.get("input_tokens", 0) or 0)
+            record["tokens"]["output"] += int(meta.get("output_tokens", 0) or 0)
+            record["tokens"]["total"] += int(meta.get("total_tokens", 0) or 0)
+
+        calls = [tc for m in messages if isinstance(m, AIMessage) for tc in m.tool_calls]
+        record["tool_calls"] = len(calls)
+        record["subagent_calls"] = sum(1 for tc in calls if tc["name"] == "task")
+
+        skills_read = set()
+        for tc in calls:
+            if tc["name"] != "read_file":
+                continue
+            path = str(tc.get("args", {}).get("file_path", ""))
+            if "skills/" in path:
+                skills_read.add(path.split("skills/", 1)[1].split("/", 1)[0])
+        record["skills_read"] = len(skills_read)
+
+        record["skills_modified"] = hash_dir(sandbox / "skills") != skills_before
+        record["final_message"] = final
+
+        graded = grade(task, sandbox / "workspace")
+        for key in ("score", "passed", "total", "checks"):
+            record[key] = graded[key]
+
+        (out / "trace.md").write_text(render_trace(messages), encoding="utf-8")
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+    (out / "run.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    return record
 
 
 def main(argv=None):
