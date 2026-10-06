@@ -1,0 +1,69 @@
+{
+  "task": "data-eval",
+  "condition": "skills-auto",
+  "role": "eval",
+  "error": null,
+  "timestamp": "2026-10-06T16:20:33.861228+00:00",
+  "skills_sha256": "a4a40722e7e47ee12890e4a1ec4a64ef89fc4a052564a6d2377ed9aa22b183ef",
+  "seconds": 99.3,
+  "tokens": {
+    "input": 195083,
+    "output": 5947,
+    "total": 201030
+  },
+  "tool_calls": 24,
+  "subagent_calls": 0,
+  "skills_read": 2,
+  "skills_modified": false,
+  "final_message": "Done. Created `workspace/answer.json` (the only file I added; `workspace/orders.json` and `workspace/README.md` were left untouched).\n\n**How I cleaned the data**\n\n1. **Deduplicated events** — grouped by `id` and kept the first event of each id. 88 raw events → 83 distinct orders; **5 duplicate events removed** (A-2006, A-2011, A-2026, A-2047, A-2058). I verified each duplicate copy was byte-identical to the first, so no ambiguity in which to keep.\n2. **Normalized categories** — stripped surrounding whitespace and lowercased (`\"GARDEN\"`, `\" garden \"`, `\"Garden\"` → `garden`), then summed revenue per category across the whole file: toys 29,876.24 / garden 27,650.71 / music 21,923.27 / books 13,959.95 → **top_category = toys**.\n3. **Normalized totals** — numeric strings with thousands separators (e.g. `\"1,250.00\"`) were converted to numbers by removing commas; the sentinel `-1` was treated as *missing* and excluded from every revenue sum. **7 distinct orders have a missing total** (A-2001, A-2003, A-2010, A-2032, A-2041, A-2052, A-2078).\n4. **Month determined in UTC** — every `placed_at` was converted to UTC before comparing, which mattered for the boundary rows: A-3000 (`2024-02-29T20:00-05:00` → 2024-03-01 UTC) and A-3001 (`2024-04-01T01:00+07:00` → 2024-03-31 UTC) moved *into* March, while A-3002 (`2024-03-31T22:30-05:00` → 2024-04-01 UTC) moved *out*. Result: **48 orders in March 2024 UTC**, of which 4 have missing totals, so 44 contribute to **march_revenue_utc = 52957.19**.\n5. **Output contract** — I re-read the task and wrote exactly the five required keys, with the required types (float/int/int/str), `top_category` in lowercase, and no invented extra fields. Note: the task mentioned \"Acme reporting conventions\", but I searched the whole sandbox (including hidden files) and no conventions document exists — only `README.md` and the two skill files — so I emitted only the specified keys rather than fabricating extra metadata. I also ran a validator that recomputes all five values independently and asserts key set, types, casing, and values against the saved file; it passed.",
+  "score": 0.4444444444444444,
+  "passed": 4,
+  "total": 9,
+  "checks": [
+    {
+      "name": "march_revenue_utc",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "march_orders_utc",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "name": "top_category",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "missing_total_orders",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate_events_removed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rule_money_in_cents",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "name": "rule_meta_block",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "name": "rule_clean_csv",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "name": "rule_sorted_keys_format",
+      "passed": false,
+      "detail": ""
+    }
+  ]
+}
