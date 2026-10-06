@@ -36,6 +36,31 @@ class TokenLimitExceeded(RuntimeError):
     """Dừng một lần chạy khi tổng token vượt ngân sách cấu hình."""
 
 
+class _BudgetUsageHandler(UsageMetadataCallbackHandler):
+    """Cộng dồn usage và ném TokenLimitExceeded ngay khi vượt ngân sách.
+
+    `on_llm_end` chạy sau MỌI lần gọi model, kể cả model bên trong subagent
+    (subagent kế thừa callback của graph cha), nên vòng lặp trong subagent bị
+    chặn ngay sau response vượt ngưỡng thay vì đợi graph cha trả về.
+    """
+
+    raise_error = True  # bắt buộc: mặc định callback handler bị nuốt lỗi
+
+    def __init__(self, max_tokens: int | None) -> None:
+        super().__init__()
+        self.max_tokens = max_tokens
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        super().on_llm_end(response, **kwargs)
+        if not self.max_tokens:
+            return
+        total = sum(int(m.get("total_tokens", 0) or 0) for m in self.usage_metadata.values())
+        if total > self.max_tokens:
+            raise TokenLimitExceeded(
+                f"{total} tokens > LAB_MAX_TOKENS={self.max_tokens}; run stopped early"
+            )
+
+
 def render_trace(messages) -> str:
     """CÓ SẴN, KHÔNG SỬA. Chuyển danh sách message của luồng chính thành Markdown (vết - trace).
 
@@ -106,7 +131,7 @@ def run_task(task_id: str, condition: str, results_dir="results", model=None,
         record["skills_sha256"] = skills_before
 
         agent = build_agent(sandbox, mode=cfg["mode"], use_skills=skills_dir is not None, model=model)
-        usage = UsageMetadataCallbackHandler()
+        usage = _BudgetUsageHandler(max_tokens)
         t0 = time.perf_counter()
         last_state = None
 

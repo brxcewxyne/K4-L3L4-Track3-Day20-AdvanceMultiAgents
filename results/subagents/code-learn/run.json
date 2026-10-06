@@ -1,0 +1,74 @@
+{
+  "task": "code-learn",
+  "condition": "subagents",
+  "role": "learn",
+  "error": null,
+  "timestamp": "2026-10-06T12:54:03.947525+00:00",
+  "skills_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "seconds": 501.4,
+  "tokens": {
+    "input": 980864,
+    "output": 63212,
+    "total": 1044076
+  },
+  "tool_calls": 33,
+  "subagent_calls": 2,
+  "skills_read": 0,
+  "skills_modified": false,
+  "final_message": "All green. Final state verified; `tests/` is untouched (identical to its original content).\n\n## What I changed and why\n\n**`workspace/inventory/pricing.py`**\n- `parse_price`: only stripped whitespace and `$`, so `\"$1,299.50\"` raised `InvalidOperation` and accounting parentheses were ignored. It now strips surrounding whitespace, removes `$` and `,` thousands separators, and negates values wrapped in parentheses — matching all four documented formats (`\"$1,299.50\"`, `\"  12 \"`, `\"1299.5\"`, `\"(12.00)\"`).\n- `apply_discount`: `quantize(Decimal(\"0.01\"))` used the default `ROUND_HALF_EVEN`, giving `9.04` for `10.05` at 10%; now passes `rounding=ROUND_HALF_UP` per the docstring's commercial rule, and `percent` is converted with `Decimal(str(percent))` so a float percent can't leak binary-float error into Decimal money arithmetic (e.g. `5.00` at `0.1` now correctly yields `5.00`).\n\n**`workspace/inventory/report.py`**\n- `low_stock`: used `qty <= threshold` and returned unsorted names. Now uses strict `<` (docstring: \"strictly below\") and `sorted(..., key=str.lower)` for case-insensitive alphabetical order.\n\n**`workspace/inventory/export.py`**\n- `to_csv_row`: never quoted names. It now applies RFC 4180 quoting when the name contains a comma or a double quote, doubling inner quotes; the price is still 2 decimals via `parse_price`. The f-string uses a single outer quote so the file also parses on Python < 3.12.\n\n**`workspace/inventory/__init__.py`** (was empty)\n- Added a one-line module docstring, package-level re-exports of the public helpers, and an explicit `__all__` list, so the package's public API is importable from `inventory` directly.\n\n`total_value` needed no logic change (it was already correct); it now benefits from the fixed `parse_price`/`apply_discount`. Module and function docstrings were preserved verbatim, no dependencies or type hints added, and nothing under `tests/` was modified.\n\nVerification: `cd workspace && python -m pytest tests -q` → **6 passed**, plus an independent reviewer pass and an edge-case script covering parenthesised/thousands-separated prices, half-up ties (positive/negative, float/str/Decimal percent), exactly-at-threshold quantities, mixed-case sorting, empty items, and comma/quote-containing names — all pass.",
+  "score": 0.7,
+  "passed": 7,
+  "total": 10,
+  "checks": [
+    {
+      "name": "visible_suite_passes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tests_not_modified",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "parse_price_all_formats",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "other_caller_fixed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "discount_rounds_half_up",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "low_stock_follows_docstring",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "csv_quoting_follows_docstring",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rule_type_hints",
+      "passed": false,
+      "detail": "RULE: every public function (name not starting with '_') in the package has type annotations on all parameters and on the return value."
+    },
+    {
+      "name": "rule_regression_tests",
+      "passed": false,
+      "detail": "RULE: add tests/test_regressions.py with one test function per bug you fixed (at least 3); the file must pass."
+    },
+    {
+      "name": "rule_changelog",
+      "passed": false,
+      "detail": "RULE: record each fix in CHANGELOG.md under the heading '## Unreleased' as a bullet '- fix(<function name>): <short description>' (at least 3 bullets)."
+    }
+  ]
+}
